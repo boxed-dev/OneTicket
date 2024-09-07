@@ -3,23 +3,23 @@
 @tailwind utilities;
 
 body {
-  color: #e0e0e0;
-  background: #1a1a1a;
+  color: #333;
+  background: #ffffff;
   font-family: 'Inter', sans-serif;
-  line-height: 1.6;
+  line-height: 1.5;
 }
 
 body input,
 body textarea {
   color: #333;
-  background: #f0f0f0;
-  border: 1px solid #ccc;
-  padding: 8px;
+  background: #ffffff;
+  border: 1px solid #e0e0e0;
+  padding: 6px;
   border-radius: 4px;
 }
 
 a {
-  color: #1e90ff;
+  color: #2c5282;
   text-decoration: none;
 }
 
@@ -28,18 +28,19 @@ a:hover {
 }
 
 p {
-  margin: 12px 0;
+  margin: 8px 0;
 }
 
 code {
-  color: #ff8c00;
-  background: #2e2e2e;
+  color: #805ad5;
+  background: #f7fafc;
   padding: 2px 4px;
   border-radius: 4px;
+  font-size: 0.875em;
 }
 
 li {
-  padding: 6px 0;
+  padding: 4px 0;
   list-style-type: disc;
-  margin-left: 20px;
+  margin-left: 16px;
 }

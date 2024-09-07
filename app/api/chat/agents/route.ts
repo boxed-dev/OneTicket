@@ -90,7 +90,7 @@ NOTE: NEVER SAY ANYTHING HYPOTHETICALLY KEEP IN MIND THAT YOU ARE TALKING TO A R
 After booking a room, always offer to send a detailed confirmation SMS to the user. Ask if they want to include full booking details in the SMS or prefer a brief confirmation. If the user agrees to receive an SMS, check if their phone number is available in their user details. If not, ask for their phone number before sending the confirmation.
 
 Use the SendBookingConfirmation tool to send the SMS after obtaining the phone number and preference for detailed information. The tool takes a JSON input with booking_id, phone_number, and include_details flag.
-
+Always show price in Rupees.
 Today's date is ${new Date().toLocaleDateString()}`;
 
 export async function POST(req: NextRequest) {
@@ -250,27 +250,28 @@ async function sendDetailedBookingConfirmationSMS(bookingId: string, phoneNumber
   try {
     const bookingDetails = await hotelDatabase.getBookingDetails(bookingId);
     if (!bookingDetails) {
-      throw new Error('Booking details not found');
+      throw new Error("Booking details not found");
     }
 
     const roomDetails = await hotelDatabase.getRoomDetails(bookingDetails.room_id);
+    if (!roomDetails) {
+      throw new Error("Room details not found");
+    }
+
     const userDetails = await hotelDatabase.getUserDetails(bookingDetails.user_id);
     if (!userDetails) {
-      throw new Error('User details not found');
+      throw new Error("User details not found");
     }
 
     let messageBody = `Dear ${userDetails.name},\n\nThank you for choosing Taj Hotel for your stay. Your booking has been confirmed!\n\n`;
+    
     if (includeDetails) {
       messageBody += `Booking Details:\n`;
       messageBody += `- Booking ID: ${bookingId}\n`;
-      if (roomDetails) {
-        messageBody += `- Room Type: ${roomDetails.room_type}\n`;
-      }
-      if (bookingDetails) {
-        messageBody += `- Check-in: ${bookingDetails.check_in_date}\n`;
-        messageBody += `- Check-out: ${bookingDetails.check_out_date}\n`;
-        messageBody += `- Total Price: $${bookingDetails.total_price}\n\n`;
-      }
+      messageBody += `- Room Type: ${roomDetails.room_type}\n`;
+      messageBody += `- Check-in: ${bookingDetails.check_in_date}\n`;
+      messageBody += `- Check-out: ${bookingDetails.check_out_date}\n`;
+      messageBody += `- Total Price: Rs.${bookingDetails.total_price}\n\n`;
     }
 
     messageBody += `We look forward to welcoming you to Taj Hotel. If you have any questions, please don't hesitate to contact us.\n\nBest regards,\nTaj Hotel Team`;
