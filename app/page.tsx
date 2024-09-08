@@ -13,12 +13,13 @@ export default function AgentsPage() {
   // );
 
   return (
-    <ChatWindow
+      <ChatWindow
       endpoint="api/chat/agents"
       emptyStateComponent={<div></div>}
       placeholder="Ask about hotel bookings..."
       titleText=""
       showIntermediateStepsToggle={true}
     />
+    
   );
 }

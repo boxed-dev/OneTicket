@@ -15,8 +15,7 @@ export default function RootLayout({
         <title>Hotel Assistant</title>
       </head>
       <body className={publicSans.className}>
-        <div className="flex flex-col p-4 md:p-12 h-[100vh]">
-      
+        <div className="flex flex-col py-4 px-4 md:px-12 h-[100vh] bg-[#02040F]">
           {children}
         </div>
       </body>
