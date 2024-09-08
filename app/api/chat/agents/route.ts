@@ -1,11 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Message as VercelChatMessage, StreamingTextResponse } from "ai";
-import twilio from 'twilio';
-
-import { createReactAgent } from "@langchain/langgraph/prebuilt";
-import { ChatOpenAI } from "@langchain/openai";
-import { Serper } from "@langchain/community/tools/serper";
-import { Calculator } from "@langchain/community/tools/calculator";
+import { PrismaClient } from "@prisma/client";
+import { DynamicTool } from "@langchain/core/tools";
 import {
   AIMessage,
   BaseMessage,
@@ -13,10 +9,13 @@ import {
   HumanMessage,
   SystemMessage,
 } from "@langchain/core/messages";
-import { DynamicTool } from "@langchain/core/tools";
-import * as hotelDatabase from "./hotelDatabase";
+import { createReactAgent } from "@langchain/langgraph/prebuilt";
+import { ChatOpenAI } from "@langchain/openai";
+import * as eventDatabase from "./eventDatabase";
+// import { sendSMS } from "./smsService"; // Assume SMS functionality is available here
 
-export const runtime = "nodejs"; // Ensure this runs in a Node.js environment
+const prisma = new PrismaClient();
+export const runtime = "nodejs";
 
 const convertVercelMessageToLangChainMessage = (message: VercelChatMessage) => {
   if (message.role === "user") {
@@ -42,45 +41,36 @@ const convertLangChainMessageToVercelMessage = (message: BaseMessage) => {
   }
 };
 
-// Add Twilio configuration
-const accountSid = process.env.TWILIO_ACCOUNT_SID;
-const authToken = process.env.TWILIO_AUTH_TOKEN;
-const twilioClient = twilio(accountSid, authToken);
-
-const AGENT_SYSTEM_TEMPLATE = `You are a hotel booking assistant for Taj Hotel. You have access to the following data:
+// System Template for the Agent
+const AGENT_SYSTEM_TEMPLATE = `You are a helpful museum assistant for event bookings. You have access to the following data and tools:
 
 #### Schema
 
-1. **Bookings**
-   - **booking_id**: Unique identifier for each booking.
-   - **user_id**: References the user who made the booking.
-   - **room_id**: References the room that is booked.
-   - **check_in_date**: Date when the user checks in.
-   - **check_out_date**: Date when the user checks out.
-   - **total_price**: Total price for the booking.
-
-2. **Rooms**
-   - **room_id**: Unique identifier for each room.
-   - **room_number**: Room number.
-   - **room_type**: Type of the room (e.g., Executive, Standard, Suite, Deluxe).
-   - **price_per_night**: Price per night for the room.
-
-3. **Users**
+1. **Users**
    - **user_id**: Unique identifier for each user.
    - **name**: Name of the user.
    - **email**: Email address of the user.
-   - **phone**: Phone number of the user.
-   - **address**: Address of the user.
+   - **phone_number**: Phone number of the user.
+   - **registered_date**: Date when the user registered.
 
-#### Relationships
+2. **Events**
+   - **event_id**: Unique identifier for each event or show.
+   - **event_name**: Name of the event.
+   - **description**: Description of the event.
+   - **event_type**: Type of the event (Exhibition, Show).
+   - **start_date**: Start date of the event.
+   - **end_date**: End date of the event.
+   - **location**: Event location.
+   - **price**: Ticket price.
+   - **capacity**: Total capacity for the event.
 
-1. **User-Booking Relationship**:
-   - Each booking is associated with a user.
-   - The \`user_id\` in the bookings data references the \`user_id\` in the users data.
+3. **Tickets**
+   - **ticket_id**: Unique identifier for each ticket.
+   - **user_id**: The user who booked the ticket.
+   - **event_id**: The event related to the ticket.
+   - **ticket_type**: Type of ticket.
+   - **visit_date**: Date when the user is visiting.
 
-2. **Room-Booking Relationship**:
-   - Each booking is associated with a room.
-   - The \`room_id\` in the bookings data references the \`room_id\` in the rooms data.
 If someone asks for booking details, you can search the user first using the tool then fetch the booking details using the tool.
 
 Use this information to assist users with their booking inquiries.
@@ -100,89 +90,77 @@ export async function POST(req: NextRequest) {
     const messages = (body.messages ?? [])
       .filter(
         (message: VercelChatMessage) =>
-          message.role === "user" || message.role === "assistant",
+          message.role === "user" || message.role === "assistant"
       )
       .map(convertVercelMessageToLangChainMessage);
 
     const tools = [
       new DynamicTool({
-        name: "SearchUsers",
-        description: "Search for users in the database. Input: user name or partial name",
-        func: async (input: string) => JSON.stringify(await hotelDatabase.searchUsers(input)),
+        name: "GetAvailableEvents",
+        description: "Retrieve list of available events.",
+        func: async () =>
+          JSON.stringify(await eventDatabase.getAvailableEvents()),
       }),
       new DynamicTool({
-        name: "CreateUser",
-        description: "Create a new user. Input: JSON string with user details (name, email, phone, address)",
-        func: async (input: string) => JSON.stringify(await hotelDatabase.createUser(JSON.parse(input))),
+        name: "CheckEventAvailability",
+        description:
+          "Check if tickets are available for a specific event. Input: event ID",
+        func: async (input: string) =>
+          JSON.stringify(
+            await eventDatabase.checkEventAvailability(parseInt(input))
+          ),
       }),
       new DynamicTool({
-        name: "GetUserBookings",
-        description: "Retrieve a user's current bookings. Input: user ID",
-        func: async (input: string) => JSON.stringify(await hotelDatabase.getUserBookings(input)),
-      }),
-      new DynamicTool({
-        name: "SearchRooms",
-        description: "Search for available rooms. Input: JSON string with startDate and endDate",
-        func: async (input: string) => JSON.stringify(await hotelDatabase.searchRooms(JSON.parse(input))),
-      }),
-      new DynamicTool({
-        name: "BookRoom",
-        description: "Book a room for a user. Input: JSON string with user_id, room_id, check_in_date, check_out_date, total_price",
-        func: async (input: string) => JSON.stringify(await hotelDatabase.bookRoom(JSON.parse(input))),
-      }),
-      new DynamicTool({
-        name: "SendBookingConfirmation",
-        description: "Send detailed booking confirmation SMS. Input: JSON string with booking_id, phone_number, and include_details flag",
-        func: async (input: string) => {
-          const { booking_id, phone_number, include_details } = JSON.parse(input);
-          const result = await sendDetailedBookingConfirmationSMS(booking_id, phone_number, include_details);
-          return JSON.stringify(result);
-        },
+        name: "BookTickets",
+        description:
+          "Book tickets for an event. Input: JSON with user_id, event_id, visit_date, quantity, ticket_type",
+        func: async (input: string) =>
+          JSON.stringify(await eventDatabase.bookTickets(JSON.parse(input))),
       }),
       new DynamicTool({
         name: "CancelBooking",
-        description: "Cancel an existing booking. Input: booking ID",
-        func: async (input: string) => JSON.stringify(await hotelDatabase.cancelBooking(input)),
+        description: "Cancel a booking. Input: ticket ID",
+        func: async (input: string) =>
+          JSON.stringify(await eventDatabase.cancelBooking(parseInt(input))),
       }),
       new DynamicTool({
-        name: "GetRoomTypes",
-        description: "Get a list of available room types",
-        func: async () => JSON.stringify(await hotelDatabase.getRoomTypes()),
+        name: "GetUserBookings",
+        description:
+          "Get the list of a user's current bookings. Input: user ID",
+        func: async (input: string) =>
+          JSON.stringify(await eventDatabase.getUserBookings(parseInt(input))),
       }),
       new DynamicTool({
-        name: "InterpretDate",
-        description: "Interpret natural language date inputs. Input: date string",
-        func: async (input: string) => JSON.stringify(hotelDatabase.interpretDate(input)),
+        name: "RegisterUser",
+        description:
+          "Register a new user. Input: JSON with user details (name, email, phone_number)",
+        func: async (input: string) =>
+          JSON.stringify(await eventDatabase.registerUser(JSON.parse(input))),
       }),
       new DynamicTool({
-        name: "GetUserDetails",
-        description: "Retrieve user details by their ID. Input: user ID",
-        func: async (input: string) => JSON.stringify(await hotelDatabase.getUserDetails(input)),
+        name: "GetEventDetails",
+        description:
+          "Get detailed information about a specific event. Input: event ID",
+        func: async (input: string) =>
+          JSON.stringify(await eventDatabase.getEventDetails(parseInt(input))),
       }),
-      new DynamicTool({
-        name: "UpdateUserInfo",
-        description: "Update user information. Input: JSON string with user ID and updated details",
-        func: async (input: string) => {
-          const { userId, updates } = JSON.parse(input);
-          return JSON.stringify(await hotelDatabase.updateUserInfo(userId, updates));
-        },
-      }),
-      new DynamicTool({
-        name: "GetBookingDetails",
-        description: "Get booking details by booking ID. Input: booking ID",
-        func: async (input: string) => JSON.stringify(await hotelDatabase.getBookingDetails(input)),
-      }),
-      new DynamicTool({
-        name: "GetRoomDetails",
-        description: "Get room details by room ID. Input: room ID",
-        func: async (input: string) => JSON.stringify(await hotelDatabase.getRoomDetails(input)),
-      }),
+      // new DynamicTool({
+      //   name: "SendSMS",
+      //   description:
+      //     "Send an SMS notification to the user. Input: JSON with phone_number and message",
+      //   func: async (input: string) => {
+      //     const { phone_number, message } = JSON.parse(input);
+      //     return JSON.stringify(await sendSMS(phone_number, message));
+      //   },
+      // }),
       new DynamicTool({
         name: "GetTodaysDate",
-        description: "Get today's date",
-        func: async () => JSON.stringify({ date: hotelDatabase.getTodaysDate() }),
+        description: "Returns today's date.",
+        func: async () => {
+          const today = new Date().toISOString().split("T")[0]; // YYYY-MM-DD
+          return JSON.stringify({ date: today });
+        },
       }),
-      new Calculator(),
     ];
 
     const chat = new ChatOpenAI({
@@ -190,46 +168,28 @@ export async function POST(req: NextRequest) {
       temperature: 0,
     });
 
-    /**
-     * Use a prebuilt LangGraph agent.
-     */
     const agent = createReactAgent({
       llm: chat,
       tools,
-      /**
-       * Modify the stock prompt in the prebuilt agent. See docs
-       * for how to customize your agent:
-       *
-       * https://langchain-ai.github.io/langgraphjs/tutorials/quickstart/
-       */
       messageModifier: new SystemMessage(AGENT_SYSTEM_TEMPLATE),
     });
 
     if (!returnIntermediateSteps) {
-      /**
-       * Stream back all generated tokens and steps from their runs.
-       *
-       */
       const eventStream = await agent.streamEvents(
         { messages },
-        { version: "v2" },
+        { version: "v2" }
       );
-
       const textEncoder = new TextEncoder();
       const transformStream = new ReadableStream({
         async start(controller) {
           for await (const { event, data } of eventStream) {
-            if (event === "on_chat_model_stream") {
-              // Intermediate chat model generations will contain tool calls and no content
-              if (!!data.chunk.content) {
-                controller.enqueue(textEncoder.encode(data.chunk.content));
-              }
+            if (event === "on_chat_model_stream" && !!data.chunk.content) {
+              controller.enqueue(textEncoder.encode(data.chunk.content));
             }
           }
           controller.close();
         },
       });
-
       return new StreamingTextResponse(transformStream);
     } else {
       const result = await agent.invoke({ messages });
@@ -237,55 +197,10 @@ export async function POST(req: NextRequest) {
         {
           messages: result.messages.map(convertLangChainMessageToVercelMessage),
         },
-        { status: 200 },
+        { status: 200 }
       );
     }
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: e.status ?? 500 });
-  }
-}
-
-// Add a function to send SMS
-async function sendDetailedBookingConfirmationSMS(bookingId: string, phoneNumber: string, includeDetails: boolean) {
-  try {
-    const bookingDetails = await hotelDatabase.getBookingDetails(bookingId);
-    if (!bookingDetails) {
-      throw new Error("Booking details not found");
-    }
-
-    const roomDetails = await hotelDatabase.getRoomDetails(bookingDetails.room_id);
-    if (!roomDetails) {
-      throw new Error("Room details not found");
-    }
-
-    const userDetails = await hotelDatabase.getUserDetails(bookingDetails.user_id);
-    if (!userDetails) {
-      throw new Error("User details not found");
-    }
-
-    let messageBody = `Dear ${userDetails.name},\n\nThank you for choosing Taj Hotel for your stay. Your booking has been confirmed!\n\n`;
-    
-    if (includeDetails) {
-      messageBody += `Booking Details:\n`;
-      messageBody += `- Booking ID: ${bookingId}\n`;
-      messageBody += `- Room Type: ${roomDetails.room_type}\n`;
-      messageBody += `- Check-in: ${bookingDetails.check_in_date}\n`;
-      messageBody += `- Check-out: ${bookingDetails.check_out_date}\n`;
-      messageBody += `- Total Price: Rs.${bookingDetails.total_price}\n\n`;
-    }
-
-    messageBody += `We look forward to welcoming you to Taj Hotel. If you have any questions, please don't hesitate to contact us.\n\nBest regards,\nTaj Hotel Team`;
-
-    const message = await twilioClient.messages.create({
-      body: messageBody,
-      from: process.env.TWILIO_PHONE_NUMBER,
-      to: phoneNumber
-    });
-
-    console.log(`Detailed SMS sent successfully. SID: ${message.sid}`);
-    return { success: true, message: "Detailed confirmation SMS sent successfully" };
-  } catch (error) {
-    console.error('Error sending detailed SMS:', error);
-    return { success: false, message: "Failed to send detailed confirmation SMS" };
   }
 }
