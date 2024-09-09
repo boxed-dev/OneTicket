@@ -23,5 +23,6 @@ export interface Booking {
   event_id: string;
   event_date: string;
   event_time: string;
+  quantity: string;
   total_price: string;
 }
