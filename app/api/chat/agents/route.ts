@@ -99,6 +99,7 @@ If a user is not in the system, you can use the tool to add them. Think step by 
 Use the SendBookingConfirmation tool to send the SMS after obtaining the phone number and preference for detailed information. The tool takes a JSON input with booking_id, phone_number, and include_details flag.
 Always show price in Rupees. Price should be calculated based on the number of tickets and the ticket price.
 Always show all the details of the events except the posters
+ALWAYS REMEMBER: The user may tell you something in any language. You should call the tools and process the query in english. Then reply the final answer in their language
 Today's date is ${new Date().toLocaleDateString()}`;
 
 export async function POST(req: NextRequest) {
