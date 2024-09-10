@@ -62,6 +62,7 @@ export const readBookings = () => readCSV<Booking>("data/bookings.csv");
 export const appendUser = (user: User) =>
   appendToCSV("data/users.csv", convertToRecord(user));
 
+//comment
 // Append a new booking to bookings.csv
 export const appendBooking = (booking: Booking) =>
   appendToCSV("data/bookings.csv", convertToRecord(booking));
