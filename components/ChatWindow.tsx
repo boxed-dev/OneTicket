@@ -4,7 +4,7 @@ import { ToastContainer, toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import { FiSend } from "react-icons/fi";
 import Image from "next/image";
-
+import { detectAndTranslate, translate } from "@/utils/langApi";
 import { Message } from "ai";
 import { useChat } from "ai/react";
 import { useRef, useState, ReactElement } from "react";
@@ -84,6 +84,7 @@ export function ChatWindow(props: {
       });
     },
   });
+  const [detectedLanguage, setDetectedLanguage] = useState<string | null>(null);
 
   async function sendMessage(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -107,16 +108,61 @@ export function ChatWindow(props: {
         content: input,
         role: "user",
       });
-      setMessages(messagesWithUserReply);
+      const filteredMessages = messagesWithUserReply.filter(
+        (message) => message.role !== "system"
+      );
+
+      setMessages(filteredMessages);
+      console.log("filteredMessages");
+      console.log(filteredMessages);
+
+      // Get the last 6 messages (or all if less than 6)
+      const lastSixMessages = filteredMessages.slice(-6);
+
+      // Translate messages to English
+      const translatedMessages = await Promise.all(
+        lastSixMessages.map(async (message) => {
+          if (message.role === "user") {
+            const result = await detectAndTranslate(message.content);
+            setDetectedLanguage(result.detected_language);
+            return { ...message, content: result.translated_text };
+          }
+          return message;
+        })
+      );
+
       const response = await fetch(endpoint, {
         method: "POST",
         body: JSON.stringify({
-          messages: messagesWithUserReply,
+          messages: translatedMessages,
           show_intermediate_steps: true,
         }),
       });
+      console.log("response");
+      console.log(response);
       const json = await response.json();
-      setIntermediateStepsLoading(false);
+      // Translate the last message (English response) back to the detected language
+      if (json.messages && json.messages.length > 0 && detectedLanguage) {
+        const lastMessage = json.messages[json.messages.length - 1];
+        if (lastMessage.role === "assistant" && lastMessage.content) {
+          try {
+            const translatedResponse = await translate(
+              lastMessage.content,
+              detectedLanguage
+            );
+
+            // Update the last message with the translated content
+            json.messages[json.messages.length - 1] = {
+              ...lastMessage,
+              content: translatedResponse.translated_text,
+            };
+
+            console.log("Translated response:", translatedResponse);
+          } catch (error) {
+            console.error("Error translating response:", error);
+          }
+        }
+      }
       if (response.status === 200) {
         const responseMessages: Message[] = json.messages;
         // Represent intermediate steps as system messages for display purposes
