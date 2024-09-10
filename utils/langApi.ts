@@ -1,4 +1,4 @@
-const API_BASE_URL = "http://localhost:5000"; // Update this to your FastAPI server URL
+const API_BASE_URL = "https://one-lang-api.vercel.app"; // Update this to your FastAPI server URL
 
 export async function detectAndTranslate(text: string) {
   const response = await fetch(`${API_BASE_URL}/detect-and-translate`, {
