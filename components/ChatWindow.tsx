@@ -8,7 +8,7 @@ import { detectAndTranslate, translate } from "@/utils/langApi";
 import { Message } from "ai";
 import { useChat } from "ai/react";
 import { useRef, useState, ReactElement } from "react";
-import type { FormEvent } from "react";
+import type { FormEvent, SetStateAction } from "react";
 
 import { ChatMessageBubble } from "@/components/ChatMessageBubble";
 import { IntermediateStep } from "./IntermediateStep";
@@ -119,17 +119,26 @@ export function ChatWindow(props: {
       // Get the last 6 messages (or all if less than 6)
       const lastSixMessages = filteredMessages.slice(-6);
 
-      // Translate messages to English
+      // Variable to store the detected language
+      let detectedLanguage: SetStateAction<string | null> = null;
+
+      // Translate messages to English and collect the detected language
       const translatedMessages = await Promise.all(
         lastSixMessages.map(async (message) => {
           if (message.role === "user") {
             const result = await detectAndTranslate(message.content);
-            setDetectedLanguage(result.detected_language);
+            // Set detected language only if it's the first time detecting it
+            if (!detectedLanguage) {
+              detectedLanguage = result.detected_language;
+            }
             return { ...message, content: result.translated_text };
           }
           return message;
         })
       );
+
+      // Update the state for detectedLanguage
+      setDetectedLanguage(detectedLanguage);
 
       const response = await fetch(endpoint, {
         method: "POST",
@@ -141,7 +150,11 @@ export function ChatWindow(props: {
       console.log("response");
       console.log(response);
       const json = await response.json();
+
       // Translate the last message (English response) back to the detected language
+      console.log("detectedLanguage");
+      console.log(detectedLanguage);
+
       if (json.messages && json.messages.length > 0 && detectedLanguage) {
         const lastMessage = json.messages[json.messages.length - 1];
         if (lastMessage.role === "assistant" && lastMessage.content) {
@@ -163,6 +176,7 @@ export function ChatWindow(props: {
           }
         }
       }
+
       if (response.status === 200) {
         const responseMessages: Message[] = json.messages;
         // Represent intermediate steps as system messages for display purposes
