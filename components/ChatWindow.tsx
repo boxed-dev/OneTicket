@@ -96,7 +96,7 @@ export function ChatWindow(props: {
     if (chatEndpointIsLoading ?? intermediateStepsLoading) {
       return;
     }
-    if (!showIntermediateSteps) {
+    if (showIntermediateSteps) {
       handleSubmit(e);
       // Some extra work to show intermediate steps properly
     } else {
