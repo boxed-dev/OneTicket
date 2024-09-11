@@ -4,12 +4,11 @@ import { ToastContainer, toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import { FiSend } from "react-icons/fi";
 import Image from "next/image";
-
+import { detectAndTranslate, translate } from "@/utils/langApi";
 import { Message } from "ai";
 import { useChat } from "ai/react";
-import { useRef, useState, ReactElement } from "react";
-import type { FormEvent } from "react";
-
+import { useRef, useState, ReactElement, useEffect } from "react";
+import type { FormEvent, SetStateAction } from "react";
 import { ChatMessageBubble } from "@/components/ChatMessageBubble";
 import { IntermediateStep } from "./IntermediateStep";
 
@@ -21,6 +20,17 @@ export function ChatWindow(props: {
   showIngestForm?: boolean;
   showIntermediateStepsToggle?: boolean;
 }) {
+  const [userId, setUserId] = useState<string | null>(null);
+
+  // Fetch userId from localStorage
+  useEffect(() => {
+    const storedUserId = localStorage.getItem("userId");
+    console.log("Stored userId in localStorage:", storedUserId); // Log the retrieved userId
+    if (storedUserId) {
+      setUserId(storedUserId);
+    }
+  }, []);
+
   const messageContainerRef = useRef<HTMLDivElement | null>(null);
 
   const {
@@ -64,6 +74,7 @@ export function ChatWindow(props: {
     setMessages,
   } = useChat({
     api: endpoint,
+    headers: userId ? { "X-User-ID": userId } : undefined, // Only set headers if userId is available
     onResponse(response) {
       const sourcesHeader = response.headers.get("x-sources");
       const sources = sourcesHeader
@@ -84,6 +95,7 @@ export function ChatWindow(props: {
       });
     },
   });
+  const [detectedLanguage, setDetectedLanguage] = useState<string | null>(null);
 
   async function sendMessage(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -96,7 +108,7 @@ export function ChatWindow(props: {
     if (chatEndpointIsLoading ?? intermediateStepsLoading) {
       return;
     }
-    if (!showIntermediateSteps) {
+    if (showIntermediateSteps) {
       handleSubmit(e);
       // Some extra work to show intermediate steps properly
     } else {
@@ -107,16 +119,79 @@ export function ChatWindow(props: {
         content: input,
         role: "user",
       });
-      setMessages(messagesWithUserReply);
+      const filteredMessages = messagesWithUserReply.filter(
+        (message) => message.role !== "system"
+      );
+
+      setMessages(filteredMessages);
+      console.log("filteredMessages");
+      console.log(filteredMessages);
+
+      // Get the last 6 messages (or all if less than 6)
+      const lastSixMessages = filteredMessages.slice(-6);
+
+      // Variable to store the detected language
+      let detectedLanguage: SetStateAction<string | null> = null;
+
+      // Translate messages to English and collect the detected language
+      const translatedMessages = await Promise.all(
+        lastSixMessages.map(async (message) => {
+          if (message.role === "user") {
+            const result = await detectAndTranslate(message.content);
+            // Set detected language only if it's the first time detecting it
+            if (!detectedLanguage) {
+              detectedLanguage = result.detected_language;
+            }
+            return { ...message, content: result.translated_text };
+          }
+          return message;
+        })
+      );
+
+      // Update the state for detectedLanguage
+      setDetectedLanguage(detectedLanguage);
+
       const response = await fetch(endpoint, {
         method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(userId && { "X-User-ID": userId }), // Conditionally add userId if available
+        },
         body: JSON.stringify({
-          messages: messagesWithUserReply,
+          messages: translatedMessages,
           show_intermediate_steps: true,
         }),
       });
+      console.log("response");
+      console.log(response);
       const json = await response.json();
-      setIntermediateStepsLoading(false);
+
+      // Translate the last message (English response) back to the detected language
+      console.log("detectedLanguage");
+      console.log(detectedLanguage);
+
+      if (json.messages && json.messages.length > 0 && detectedLanguage) {
+        const lastMessage = json.messages[json.messages.length - 1];
+        if (lastMessage.role === "assistant" && lastMessage.content) {
+          try {
+            const translatedResponse = await translate(
+              lastMessage.content,
+              detectedLanguage
+            );
+
+            // Update the last message with the translated content
+            json.messages[json.messages.length - 1] = {
+              ...lastMessage,
+              content: translatedResponse.translated_text,
+            };
+
+            console.log("Translated response:", translatedResponse);
+          } catch (error) {
+            console.error("Error translating response:", error);
+          }
+        }
+      }
+
       if (response.status === 200) {
         const responseMessages: Message[] = json.messages;
         // Represent intermediate steps as system messages for display purposes
