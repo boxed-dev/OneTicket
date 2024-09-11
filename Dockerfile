@@ -17,7 +17,7 @@ COPY . .
 RUN mkdir -p /app/data
 
 # Build the Next.js application
-RUN npm build --force
+RUN npm run build --force
 
 # Expose the port the app runs on
 EXPOSE 3000
