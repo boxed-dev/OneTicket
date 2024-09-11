@@ -50,27 +50,27 @@ function convertToRecord<T>(obj: T): Record<string, unknown> {
 }
 
 // Read users from users.csv
-export const readUsers = () => readCSV<User>("data/users.csv");
+export const readUsers = () => readCSV<User>("/data/users.csv");
 
 // Read events from events.csv
-export const readEvents = () => readCSV<Event>("data/events.csv");
+export const readEvents = () => readCSV<Event>("/data/events.csv");
 
 // Read bookings from bookings.csv
-export const readBookings = () => readCSV<Booking>("data/bookings.csv");
+export const readBookings = () => readCSV<Booking>("/data/bookings.csv");
 
 // Append a new user to users.csv
 export const appendUser = (user: User) =>
-  appendToCSV("data/users.csv", convertToRecord(user));
+  appendToCSV("/data/users.csv", convertToRecord(user));
 
 //comment
 // Append a new booking to bookings.csv
 export const appendBooking = (booking: Booking) =>
-  appendToCSV("data/bookings.csv", convertToRecord(booking));
+  appendToCSV("/data/bookings.csv", convertToRecord(booking));
 
 // Write the entire users list to users.csv
 export const writeUsers = (users: User[]) =>
-  writeCSV("data/users.csv", users.map(convertToRecord));
+  writeCSV("/data/users.csv", users.map(convertToRecord));
 
 // Write the entire bookings list to bookings.csv
 export const writeBookings = (bookings: Booking[]) =>
-  writeCSV("data/bookings.csv", bookings.map(convertToRecord));
+  writeCSV("/data/bookings.csv", bookings.map(convertToRecord));
