@@ -47,7 +47,7 @@ const accountSid = process.env.TWILIO_ACCOUNT_SID;
 const authToken = process.env.TWILIO_AUTH_TOKEN;
 const twilioClient = twilio(accountSid, authToken);
 
-const AGENT_SYSTEM_TEMPLATE = `You are an exhibition booking assistant for an event management platform. You have access to the following data:
+const AGENT_SYSTEM_TEMPLATE = `You are an exhibition booking assistant for an event management platform. The current user's ID is: {{userId}}. Use this ID when fetching user details or bookings. You have access to the following data:
 
 #### Schema
 
@@ -88,7 +88,7 @@ const AGENT_SYSTEM_TEMPLATE = `You are an exhibition booking assistant for an ev
    - The \`event_id\` in the bookings data references the \`event_id\` in the events data.
 
 If someone asks for booking details, you can search the user first using the tool then fetch the booking details using the tool.
-
+You have access to the current user's ID. Use the GetCurrentUser tool to fetch their details when needed.
 Use this information to assist users with their booking inquiries.
 
 MOST IMPORTANT: IF YOU CANT ASSIST WITH SOMETHING THEN SHOW THIS LINK TO THE USER: https://wa.me/918881920469?text=Hello where the user can talk to CostumerAgent.
@@ -100,10 +100,14 @@ Use the SendBookingConfirmation tool to send the SMS after obtaining the phone n
 Always show price in Rupees. Price should be calculated based on the number of tickets and the ticket price.
 Always show all the details of the events except the posters
 ALWAYS REMEMBER: The user may tell you something in any language. You should call the tools and process the query in english. Then reply the final answer in their language
-Today's date is ${new Date().toLocaleDateString()}`;
+Today's date is ${new Date().toLocaleDateString()}
+The current user's ID is: {{userId}}`;
 
 export async function POST(req: NextRequest) {
   try {
+    console.log("Received request headers:", req.headers);
+    const userId = req.headers.get("X-User-ID") || "unknown";
+    console.log("Extracted userId:", userId);
     const body = await req.json();
     const returnIntermediateSteps = body.show_intermediate_steps;
     const messages = (body.messages ?? [])
@@ -113,6 +117,15 @@ export async function POST(req: NextRequest) {
       )
       .map(convertVercelMessageToLangChainMessage);
 
+    // console.log("Received userId:", userId); // Log the received userId
+
+    // Replace the placeholder in the template with the actual userId
+    const systemPrompt = AGENT_SYSTEM_TEMPLATE.replace(
+      /\{\{userId\}\}/g,
+      userId
+    );
+
+    // console.log("System prompt with userId:", systemPrompt); // Log the modified system prompt
     const tools = [
       new DynamicTool({
         name: "SearchUsers",
@@ -120,6 +133,19 @@ export async function POST(req: NextRequest) {
           "Search for users in the database. Input: user name or partial name",
         func: async (input: string) =>
           JSON.stringify(await exhibitionDatabase.searchUsers(input)),
+      }),
+      new DynamicTool({
+        name: "GetCurrentUser",
+        description:
+          "Get the current user's details using userId. Input: userId",
+        func: async (input: string) => {
+          if (!input) {
+            return JSON.stringify({ error: "User not logged in" });
+          }
+          // console.log("input");
+          // console.log(input);
+          return JSON.stringify(await exhibitionDatabase.getUserDetails(input));
+        },
       }),
       new DynamicTool({
         name: "CreateUser",
@@ -132,9 +158,13 @@ export async function POST(req: NextRequest) {
       }),
       new DynamicTool({
         name: "GetUserBookings",
-        description: "Retrieve a user's current bookings. Input: user ID",
-        func: async (input: string) =>
-          JSON.stringify(await exhibitionDatabase.getUserBookings(input)),
+        description: "Retrieve the current user's bookings. No input required.",
+        func: async () => {
+          // console.log("GetUserBookings called with userId:", userId); // Log when this tool is called
+          return JSON.stringify(
+            await exhibitionDatabase.getUserBookings(userId)
+          );
+        },
       }),
       new DynamicTool({
         name: "SearchEvents",
@@ -198,13 +228,7 @@ export async function POST(req: NextRequest) {
     const agent = createReactAgent({
       llm: chat,
       tools,
-      /**
-       * Modify the stock prompt in the prebuilt agent. See docs
-       * for how to customize your agent:
-       *
-       * https://langchain-ai.github.io/langgraphjs/tutorials/quickstart/
-       */
-      messageModifier: new SystemMessage(AGENT_SYSTEM_TEMPLATE),
+      messageModifier: new SystemMessage(systemPrompt),
     });
 
     if (!returnIntermediateSteps) {
@@ -216,6 +240,8 @@ export async function POST(req: NextRequest) {
         { messages },
         { version: "v2" }
       );
+      // console.log("userId");
+      // console.log(userId);
 
       const textEncoder = new TextEncoder();
       const transformStream = new ReadableStream({

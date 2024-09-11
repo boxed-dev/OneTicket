@@ -7,9 +7,8 @@ import Image from "next/image";
 import { detectAndTranslate, translate } from "@/utils/langApi";
 import { Message } from "ai";
 import { useChat } from "ai/react";
-import { useRef, useState, ReactElement } from "react";
+import { useRef, useState, ReactElement, useEffect } from "react";
 import type { FormEvent, SetStateAction } from "react";
-
 import { ChatMessageBubble } from "@/components/ChatMessageBubble";
 import { IntermediateStep } from "./IntermediateStep";
 
@@ -21,6 +20,17 @@ export function ChatWindow(props: {
   showIngestForm?: boolean;
   showIntermediateStepsToggle?: boolean;
 }) {
+  const [userId, setUserId] = useState<string | null>(null);
+
+  // Fetch userId from localStorage
+  useEffect(() => {
+    const storedUserId = localStorage.getItem("userId");
+    console.log("Stored userId in localStorage:", storedUserId); // Log the retrieved userId
+    if (storedUserId) {
+      setUserId(storedUserId);
+    }
+  }, []);
+
   const messageContainerRef = useRef<HTMLDivElement | null>(null);
 
   const {
@@ -64,6 +74,7 @@ export function ChatWindow(props: {
     setMessages,
   } = useChat({
     api: endpoint,
+    headers: userId ? { "X-User-ID": userId } : undefined, // Only set headers if userId is available
     onResponse(response) {
       const sourcesHeader = response.headers.get("x-sources");
       const sources = sourcesHeader
@@ -142,6 +153,10 @@ export function ChatWindow(props: {
 
       const response = await fetch(endpoint, {
         method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(userId && { "X-User-ID": userId }), // Conditionally add userId if available
+        },
         body: JSON.stringify({
           messages: translatedMessages,
           show_intermediate_steps: true,
